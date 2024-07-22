@@ -1,2 +1,2 @@
 # optrade
-option trade
+option analysis and trade
