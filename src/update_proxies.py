@@ -11,9 +11,12 @@ import asyncio
 import multiprocessing
 import datetime
 import argparse
+import urllib3
 from bs4 import BeautifulSoup
 from collections import Counter
 from proxybroker import Broker
+
+urllib3.disable_warnings()
 
 
 def get_proxy_source1(config):
@@ -153,11 +156,26 @@ def requests_get(url, config=dict()):
         time.sleep(config.get('sleep', 0))
 
 
+def get_option_dates(html):
+    soup = BeautifulSoup(html, 'html')
+    tmp = soup.find('div', {'data-testid': 'options-toolbar'})
+    dates = []
+    if tmp:
+        print('optiontable')
+        for d in tmp.find('div', {'role': 'listbox'}).find_all('div', {'role': 'option'}):
+            tdate = datetime.datetime(1970, 1, 1) + datetime.timedelta(seconds=int(d["data-value"]))
+            dates.append((d["data-value"],
+                          tdate.isoformat()[:10]))
+    return dates
+
+
 def main(sources=[get_proxy_source1, get_proxy_source3],
          dir_source='/tmp', fsave=None, nprocess=32):
     url = 'http://www.aphanti.com/myip'
+    # url = 'https://www.hforganic.com/about/'
+    # url = 'http://finance.yahoo.com/'
     config = {'verbose': True, 'ntry': 1, 'sleep': 0, 'timeout': 10,
-              'verify': False, 'allow_redirects': False, 
+              'verify': False, 'allow_redirects': True, 
               'headers': random.sample(json.load(open('../data/headers.json', 'r')), 1)[0],}    
     dfs = []
     for fn in glob.glob(dir_source+'/*.csv'):
@@ -175,8 +193,7 @@ def main(sources=[get_proxy_source1, get_proxy_source3],
         df = pd.concat(dfs, axis=0, ignore_index=True)
         df = df.drop_duplicates(subset=['ip', 'port'])
         print('Total pool:', len(df))
-        arglist = [(url, {**config, **{'proxies': {'http': 'http://'+df.loc[i, 'ip']+':'+df.loc[i, 'port'],
-                                                   'https': 'https://'+df.loc[i, 'ip']+':'+df.loc[i, 'port']}}}) for i in df.index.values]
+        arglist = [(url, {**config, **{'proxies': {'http': 'http://'+df.loc[i, 'ip']+':'+df.loc[i, 'port']}}}) for i in df.index.values]
         with multiprocessing.Pool(processes=nprocess) as pool:
             results = pool.starmap(requests_get, arglist)
         df['latency'] = [x['latency'] if x else 1e9 for x in results]
@@ -188,7 +205,7 @@ def main(sources=[get_proxy_source1, get_proxy_source3],
         os.makedirs(os.path.dirname(fsave), exist_ok=True)
         with open(fsave, 'w') as fid:
             df.to_csv(fsave, index=None)
-    return df
+    return
 
 
 if __name__ == "__main__":
@@ -210,4 +227,4 @@ if __name__ == "__main__":
         sources.append(get_proxy_source2)
     if '3' in args.sources.split(','):
         sources.append(get_proxy_source3)
-    _ = main(sources, args.directory, args.save_csv, args.nprocess)
+    main(sources, args.directory, args.save_csv, args.nprocess)
